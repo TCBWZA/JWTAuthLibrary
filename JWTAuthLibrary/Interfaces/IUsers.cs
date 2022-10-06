@@ -7,7 +7,7 @@
         public Task<Users> GetByGuidAsync(Guid ID);
         public Task<Users> GetByLoginNameAsync(String LoginName);
         public void DeleteAsync(Guid ID);
-        public void DeleteAsync(UserLoginModel Item);
+        public void InsertAsync(UserRegisterModel Item);
         public string GetConnectionString();
     }
 }
