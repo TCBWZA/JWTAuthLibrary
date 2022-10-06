@@ -46,7 +46,7 @@ namespace JWTAuthLibrary
         [Column("Email")]
         [MaxLength(250)]
         public String? Email { get; set; }
-        public List<Roles> roles { get; } = new List<Roles>();
+        public List<Roles> roles { get; set; } = new List<Roles>();
     }
 
     public class UserLoginModel

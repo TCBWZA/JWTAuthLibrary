@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -10,95 +11,90 @@ using JWTAuthLibrary;
 
 namespace JWTAuthLibrary
 {
-    public class UserService : UserDBBase
+    public class UserService
     {
-        public UserService(UserDBContext userDatabase)
-            : base(userDatabase)
-        {
-        }
 
-        public async Task<User> AddUserAsync(string userName, string password, CancellationToken cancellationToken = default)
+        public async Task<Users> AddUserAsync(UserRegisterModel NewUser, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(userName))
+            if (string.IsNullOrEmpty(NewUser.LoginName))
             {
-                throw new System.ArgumentException($"'{nameof(userName)}' cannot be null or empty.", nameof(userName));
+                throw new System.ArgumentException($"'Login Name' cannot be null or empty.");
+            }
+            if (string.IsNullOrEmpty(NewUser.Firstname))
+            {
+                throw new System.ArgumentException($"'Firstname' cannot be null or empty.");
+            }
+            if (string.IsNullOrEmpty(NewUser.Lastname))
+            {
+                throw new System.ArgumentException($"'Lastname' cannot be null or empty.");
             }
 
-            if (string.IsNullOrEmpty(password))
+            if (string.IsNullOrEmpty(NewUser.Password))
             {
-                throw new System.ArgumentException($"'{nameof(password)}' cannot be null or empty.", nameof(password));
+                throw new System.ArgumentException($"'Password' cannot be null or empty.");
             }
 
-            byte[] passwordHash = await ComputePasswordHashAsync(password).ConfigureAwait(false);
-            User newUser = new User { Name = userName, PasswordHash = passwordHash };
-            UserDBContext.Add<User>(newUser);
-            await UserDBContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return newUser; // New user with id.
+
+            Users_TSQL dbusers = new Users_TSQL("");
+            var AddedUser = await dbusers.AddAsync(NewUser);
+
+            return AddedUser; // New user with id.
         }
 
-        public async IAsyncEnumerable<User> ListUsersAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<Users> ListUsersAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await foreach (User user in UserDBContext.Users.AsAsyncEnumerable<User>())
+            Users_TSQL dbusers = new Users_TSQL("");
+            foreach (Users user in dbusers.GetAllActiveAsync().Result.ToList())
             {
                 RedactSensitiveData(user);
                 yield return user;
             }
         }
 
-        public Task<User> GetUserByNameAsync(string userName)
+        public Task<Users> GetUserByNameAsync(string userName)
         {
-            return UserDBContext.Users.SingleAsync(u => string.Equals(userName, u.Name));
+            Users_TSQL dbusers = new Users_TSQL("");
+            return dbusers.GetByLoginNameAsync(userName);
         }
-        public async Task<User> GetValidUserAsync(string userName, string clearTextPassword, CancellationToken cancellationToken = default)
+        public async Task<Users> GetValidUserAsync(string userName, string clearTextPassword, CancellationToken cancellationToken = default)
         {
-            User target = await GetUserByNameAsync(userName).ConfigureAwait(false);
-            byte[] actualPasswordHash = await ComputePasswordHashAsync(clearTextPassword).ConfigureAwait(false);
-            if (actualPasswordHash.SequenceEqual(target.PasswordHash))
+            UserLoginModel inputuser = new UserLoginModel();
+            inputuser.LoginName = userName;
+            inputuser.Password = clearTextPassword;
+            Users target = await GetUserByNameAsync(userName).ConfigureAwait(false);
+            if (inputuser.PasswordHash.SequenceEqual(target.PasswordHash))
             {
                 return target;
             }
             return null;
         }
 
-        public Task ChangePasswordAsync(User user, CancellationToken cancellationToken = default)
+        public Task ChangePasswordAsync(Users user, CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
         }
 
-        public async Task<User> GetUserByIdAsync(
-            Guid userId,
-            Func<IQueryable<User>, IQueryable<User>> onUserFetched = null,
-            Func<User, User> onReturnUser = null,
-            CancellationToken cancellationToken = default)
+        public Users GetUserByIdAsync(Guid userId)
         {
-            onUserFetched ??= users => users;
-            onReturnUser ??= RedactSensitiveData;
-            IQueryable<User> users = UserDBContext.Users;
-            users = onUserFetched(users);
-
-            User target = await users.SingleAsync(u => u.Id == userId);
-            return onReturnUser(target);
+            Users_TSQL dbusers = new Users_TSQL("");
+            return dbusers.GetByGuidAsync(userId).Result;
         }
 
-        public async Task<IEnumerable<Role>> GetRoles(User user)
+        public List<String> GetRoles(Users user)
         {
-            User targetUser = await UserDBContext.Users.Include(u => u.Roles).SingleAsync(u => u.Id == user.Id);
-            return targetUser.Roles;
+            var rolelist = new List<String>();
+            foreach (Roles role in user.roles)
+            {
+                rolelist.Add(role.Name);
+            }
+            return rolelist;
         }
 
-        private static User RedactSensitiveData(User user)
+        private static Users RedactSensitiveData(Users user)
         {
             // Redact the password hash
             user.PasswordHash = null;
             return user;
-        }
-
-        private async Task<byte[]> ComputePasswordHashAsync(string clearTextPassword)
-        {
-            using SHA256 sha256 = SHA256.Create();
-            using Stream passwordStream = clearTextPassword.ToStream();
-            byte[] passwordHash = await sha256.ComputeHashAsync(passwordStream).ConfigureAwait(false);
-            return passwordHash;
         }
     }
 }

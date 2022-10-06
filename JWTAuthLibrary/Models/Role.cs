@@ -20,6 +20,6 @@ namespace JWTAuthLibrary
         [Column("Active")]
         public bool IsActive { get; set; } = true;
 
-        public List<Users> Users { get; } = new List<Users>();
+        //public List<Users> Users { get; } = new List<Users>();
     }
 }

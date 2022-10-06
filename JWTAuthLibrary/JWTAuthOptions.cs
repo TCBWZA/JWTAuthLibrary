@@ -9,8 +9,12 @@ namespace Microsoft.Extensions.DependencyInjection
 {
     public class JWTAuthOptions
     {
-        public const string SectionName = "JWTAuth";
+        public const string SectionName = "JWTAuthLibrary";
 
+        public string JWTDBConnection { get; set; }
+        public string JWTAuthPrefix { get; set; }
+        public string UserTable { get; set; }
+        public string RoleTable { get; set; }
         public string IssuerSigningSecret { get; set; }
         public string Issuer { get; set; } = "JWTAuthIssuer";
         public string Audience { get; set; } = "JWTAuthAudience";
