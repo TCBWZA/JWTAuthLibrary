@@ -4,57 +4,76 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System;
+using System.Diagnostics;
 using System.Text;
 
 namespace Microsoft.Extensions.DependencyInjection
 {
+    /// <summary>
+    /// Extension methods to help registering JWT auth related services.
+    /// </summary>
     public static class ServiceCollectionExtensions
     {
-        private static JWTAuthOptions _jwtAuthOptionsCache;
+        private static JWTAuthOptions _jwtAuthOptionsCache = null;
 
+        /// <summary>
+        /// Add JWT authentication related services.
+        /// </summary>
         public static IServiceCollection AddJWTAuth(
-          this IServiceCollection services,
-          Action<JWTAuthOptions> configure = null)
+            this IServiceCollection services,
+            Action<JWTAuthOptions> configure = null,
+            string jwtAuthOptionSectionName = JWTAuthOptions.SectionName)
         {
-            OptionsServiceCollectionExtensions.AddOptions<JWTAuthOptions>(services).Configure<IConfiguration, ILogger<JWTAuthOptions>>((Action<JWTAuthOptions, IConfiguration, ILogger<JWTAuthOptions>>)((options, configuration, logger) =>
+            services.AddOptions<JWTAuthOptions>().Configure<IConfiguration, ILogger<JWTAuthOptions>>((options, configuration, logger) =>
             {
-                ConfigurationBinder.Bind((IConfiguration)configuration.GetSection(JWTAuthOptions.SectionName), (object)options);
-                Action<JWTAuthOptions> action = configure;
-                if (action != null)
-                    action(options);
+                configuration.GetSection(jwtAuthOptionSectionName).Bind(options);
+                configure?.Invoke(options);
+
+                // Quick check for IssuerSigningSecret
                 if (string.IsNullOrEmpty(options.IssuerSigningSecret))
                 {
-                    if (logger != null)
-                        LoggerExtensions.LogWarning((ILogger)logger, message: "Issuer signing secret is not specified. Using random string as secrets temperory. Please specify issuer signing secret.", Array.Empty<object>());
+                    logger?.LogWarning("Issuer signing secret is not specified. Using random string as secrets temperory. Please specify issuer signing secret.");
                     options.IssuerSigningSecret = Guid.NewGuid().ToString();
                 }
-                ServiceCollectionExtensions._jwtAuthOptionsCache = options;
-            }));
-            JwtBearerExtensions.AddJwtBearer(AuthenticationServiceCollectionExtensions.AddAuthentication(services, (Action<AuthenticationOptions>)(opt =>
+
+                // TODO: Is it a good idea to keep it in the static field like this?
+                _jwtAuthOptionsCache = options;
+            });
+
+            services
+            .AddAuthentication(opt =>
             {
-                opt.DefaultAuthenticateScheme = "Bearer";
-                opt.DefaultChallengeScheme = "Bearer";
-            })), (Action<JwtBearerOptions>)(opt =>
+                opt.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                opt.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(opt =>
             {
-                opt.TokenValidationParameters = new TokenValidationParameters()
+                Debug.Assert(_jwtAuthOptionsCache != null, "_jWTAuthOptionsCache should have been set.");
+
+                opt.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = (SecurityKey)new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ServiceCollectionExtensions._jwtAuthOptionsCache.IssuerSigningSecret)),
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtAuthOptionsCache.IssuerSigningSecret)),
                     ValidateIssuer = true,
-                    ValidIssuer = ServiceCollectionExtensions._jwtAuthOptionsCache.Issuer,
+                    ValidIssuer = _jwtAuthOptionsCache.Issuer,
                     ValidateAudience = true,
-                    ValidAudience = ServiceCollectionExtensions._jwtAuthOptionsCache.Audience,
-                    NameClaimType = ServiceCollectionExtensions._jwtAuthOptionsCache.NameClaimType
+                    ValidAudience = _jwtAuthOptionsCache.Audience,
+                    NameClaimType = _jwtAuthOptionsCache.NameClaimType,
                 };
-                if (!string.Equals(ServiceCollectionExtensions._jwtAuthOptionsCache.RoleClaimType, "role", StringComparison.OrdinalIgnoreCase))
-                    opt.TokenValidationParameters.RoleClaimType = ServiceCollectionExtensions._jwtAuthOptionsCache.RoleClaimType;
-                if (ServiceCollectionExtensions._jwtAuthOptionsCache.OnJWTAuthenticationMessageReceived == null)
-                    return;
-                opt.Events = new JwtBearerEvents()
+                if (!string.Equals(_jwtAuthOptionsCache.RoleClaimType, "role", StringComparison.OrdinalIgnoreCase))
                 {
-                    OnMessageReceived = ServiceCollectionExtensions._jwtAuthOptionsCache.OnJWTAuthenticationMessageReceived
-                };
-            }));
+                    opt.TokenValidationParameters.RoleClaimType = _jwtAuthOptionsCache.RoleClaimType;
+                }
+
+                if (_jwtAuthOptionsCache.OnJWTAuthenticationMessageReceived != null)
+                {
+                    opt.Events = new JwtBearerEvents()
+                    {
+                        OnMessageReceived = _jwtAuthOptionsCache.OnJWTAuthenticationMessageReceived,
+                    };
+                }
+            });
+
             return services;
         }
     }
